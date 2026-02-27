@@ -1,11 +1,16 @@
 'use server'
 
-import { generateAptitudeTest } from '@/lib/genkit';
+import { 
+  generateAptitudeTest, 
+  generateCodingChallenge, 
+  evaluateCode, 
+  chatWithHR, 
+  generateFinalReport 
+} from '@/lib/genkit';
 import { db } from '@/lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
 
 export async function fetchAptitudeQuestions() {
-  // Calls the Genkit flow and returns the guaranteed JSON array
   return await generateAptitudeTest(); 
 }
 
@@ -19,18 +24,14 @@ export async function saveInterviewResult(candidateName: string, round: string, 
   });
 }
 
-// ... (Keep your existing fetchAptitudeQuestions and saveInterviewResult above this)
-import { generateCodingChallenge, evaluateCode } from '@/lib/genkit';
-
 export async function fetchCodingProblem() {
   return await generateCodingChallenge();
 }
 
-export async function submitCodeReview(problemDescription: string, userCode: string) {
-  return await evaluateCode({ problemDescription, userCode });
+// Added language parameter here
+export async function submitCodeReview(problemDescription: string, userCode: string, language: string) {
+  return await evaluateCode({ problemDescription, userCode, language });
 }
-// ... (Keep all previous exports)
-import { chatWithHR, generateFinalReport } from '@/lib/genkit';
 
 export async function submitHrMessage(history: any[], newMessage: string) {
   return await chatWithHR({ history, newMessage });

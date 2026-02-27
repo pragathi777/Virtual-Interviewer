@@ -6,7 +6,7 @@ export const ai = genkit({
   plugins: [googleAI({ apiKey: process.env.GOOGLE_GEN_AI_API_KEY })],
 });
 
-// 1. Define the strict JSON structure for our MCQs
+// 1. Aptitude Schema & Flow
 const QuestionSchema = z.object({
   id: z.string(),
   category: z.string().describe("Quantitative, Logical, or Verbal"),
@@ -15,7 +15,6 @@ const QuestionSchema = z.object({
   correctAnswer: z.string().describe("Must match one of the options exactly"),
 });
 
-// 2. Define the flow that generates the test
 export const generateAptitudeTest = ai.defineFlow(
   {
     name: 'generateAptitudeTest',
@@ -30,20 +29,28 @@ export const generateAptitudeTest = ai.defineFlow(
       Make them moderately difficult. Do not use markdown blocks, only return the JSON.`,
       output: { schema: z.array(QuestionSchema) } 
     });
-    
-    // FIX: Removed the parentheses. It is a property, not a method.
     return response.output; 
   }
 ); 
 
-// 3. Schema for generating the coding problem
+// 2. CODING SCHEMA UPDATED FOR LEETCODE STYLE
 const CodingProblemSchema = z.object({
   title: z.string(),
-  description: z.string().describe("Detailed problem statement with examples"),
-  initialCode: z.string().describe("Starting template, e.g., 'function solve() { // write code here }'"),
+  description: z.string().describe("Clear problem statement without examples."),
+  examples: z.array(z.object({
+    input: z.string(),
+    output: z.string(),
+    explanation: z.string().optional()
+  })).describe("2 to 3 test case examples"),
+  constraints: z.array(z.string()).describe("Technical constraints (e.g., 1 <= nums.length <= 10^4)"),
+  starterCode: z.object({
+    javascript: z.string(),
+    python: z.string(),
+    java: z.string(),
+    cpp: z.string()
+  }).describe("Starter function templates for each language")
 });
 
-// 4. Flow to generate the problem
 export const generateCodingChallenge = ai.defineFlow(
   {
     name: 'generateCodingChallenge',
@@ -53,49 +60,45 @@ export const generateCodingChallenge = ai.defineFlow(
   async () => {
     const response = await ai.generate({
       model: googleAI.model('gemini-2.5-flash'),
-      prompt: `Generate a medium-difficulty Data Structures and Algorithms coding interview question. 
-      Do NOT output markdown blocks. Return only JSON matching the schema.`,
+      prompt: `Generate an Easy-difficulty Data Structures and Algorithms coding interview question (similar to LeetCode Easy). 
+      Provide standard inputs/outputs, constraints, and starting code templates for JavaScript, Python, Java, and C++.
+      Return ONLY JSON matching the schema.`,
       output: { schema: CodingProblemSchema }
     });
-    
-    // FIX
     return response.output; 
   }
 );
 
-// 5. Schema for AI evaluation
+// 3. CODE EVALUATION UPDATED FOR MULTI-LANGUAGE
 const CodeEvaluationSchema = z.object({
   score: z.number().describe("Score out of 100 based on correctness and efficiency"),
   feedback: z.string().describe("Short explanation of what works or what failed"),
   passed: z.boolean().describe("True if score is 70 or higher"),
 });
 
-// 6. Flow to act as the compiler/reviewer
 export const evaluateCode = ai.defineFlow(
   {
     name: 'evaluateCode',
-    inputSchema: z.object({ problemDescription: z.string(), userCode: z.string() }),
+    // Added 'language' to inputSchema so AI knows how to compile it
+    inputSchema: z.object({ problemDescription: z.string(), userCode: z.string(), language: z.string() }),
     outputSchema: CodeEvaluationSchema,
   },
   async (input) => {
     const response = await ai.generate({
       model: googleAI.model('gemini-2.5-flash'),
-      prompt: `You are an expert technical interviewer. Review this candidate's code for the following problem:
+      prompt: `You are an expert technical interviewer. Review this candidate's ${input.language} code for the following problem:
       Problem: ${input.problemDescription}
       Candidate Code: ${input.userCode}
       
-      Does this code correctly solve the problem? Evaluate for edge cases and logic.
+      Does this code correctly solve the problem? Evaluate for edge cases, logic, and syntax for ${input.language}.
       Return the evaluation in pure JSON.`,
       output: { schema: CodeEvaluationSchema }
     });
-    
-    // FIX
     return response.output; 
   }
 );
-// ... (Keep ALL your Phase 1, 2, and 3 code above this)
 
-// 7. Flow for the HR Chat conversation
+// 4. HR Chat & Report
 export const chatWithHR = ai.defineFlow(
   {
     name: 'chatWithHR',
@@ -106,59 +109,44 @@ export const chatWithHR = ai.defineFlow(
     outputSchema: z.string(),
   },
   async (input) => {
-    // We format the history so Gemini knows what was already said
     const conversationContext = input.history.map(msg => `${msg.role.toUpperCase()}: ${msg.content}`).join('\n');
-    
     const response = await ai.generate({
       model: googleAI.model('gemini-2.5-flash'),
-      prompt: `You are an empathetic but professional HR Manager conducting the final interview round.
-      Here is the conversation so far:
+      prompt: `You are an empathetic but professional HR Manager.
+      Conversation so far:
       ${conversationContext}
       
-      The candidate just said: "${input.newMessage}"
-      
-      Respond to the candidate. Ask exactly ONE behavioral or cultural fit question. 
-      Keep your response under 3 sentences. Be conversational.`,
+      Candidate just said: "${input.newMessage}"
+      Respond with exactly ONE behavioral question. Keep it under 3 sentences.`,
     });
-    
     return response.text; 
   }
 );
 
-// 8. Schema for the Final AI Report
 const ReportSchema = z.object({
-  overallScore: z.number().describe("Final score out of 100 based on all rounds"),
-  strengths: z.array(z.string()).describe("3-4 key strengths shown by the candidate"),
+  overallScore: z.number().describe("Final score out of 100"),
+  strengths: z.array(z.string()).describe("3-4 key strengths"),
   weaknesses: z.array(z.string()).describe("1-2 areas for improvement"),
   verdict: z.enum(['Strong Hire', 'Hire', 'No Hire']).describe("Final hiring decision"),
-  summary: z.string().describe("A 2-sentence executive summary of the candidate's performance.")
+  summary: z.string().describe("A 2-sentence executive summary.")
 });
 
-// 9. Flow to generate the Final Report
 export const generateFinalReport = ai.defineFlow(
   {
     name: 'generateFinalReport',
-    inputSchema: z.object({
-      aptitudeScore: z.number(),
-      codingFeedback: z.string(),
-      hrTranscript: z.string()
-    }),
+    inputSchema: z.object({ aptitudeScore: z.number(), codingFeedback: z.string(), hrTranscript: z.string() }),
     outputSchema: ReportSchema,
   },
   async (input) => {
     const response = await ai.generate({
       model: googleAI.model('gemini-2.5-flash'),
-      prompt: `You are the Lead Technical Recruiter. Review this candidate's entire file and generate a final JSON report:
-      
-      1. Aptitude Round Score: ${input.aptitudeScore}%
-      2. Coding Round Feedback: ${input.codingFeedback}
-      3. HR Interview Transcript:
-      ${input.hrTranscript}
-      
-      Analyze their technical skills, problem-solving, and cultural fit. Return ONLY JSON matching the schema.`,
+      prompt: `Review this candidate's entire file and generate a final JSON report:
+      1. Aptitude Score: ${input.aptitudeScore}%
+      2. Coding Feedback: ${input.codingFeedback}
+      3. HR Transcript:\n${input.hrTranscript}
+      Return ONLY JSON matching the schema.`,
       output: { schema: ReportSchema }
     });
-    
     return response.output;
   }
 );
